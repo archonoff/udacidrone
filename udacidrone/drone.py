@@ -57,6 +57,9 @@ class Drone(object):
         # If the drone is guided it is being autonomously controlled,
         # the other opposite would be manual control.
         self._guided = False
+        
+        # An integer to pass along random status changes specific for different vehicles
+        self._status = 0
         self._state_time = 0.0
         self._state_frequency = 0.0
 
@@ -206,6 +209,10 @@ class Drone(object):
     @property
     def state_time(self):
         return self._state_time
+    
+    @property
+    def status(self):
+        return self._status
 
     def _update_state(self, msg):
         self._armed = msg.armed
@@ -213,6 +220,7 @@ class Drone(object):
         if (msg.time - self._state_time) > 0.0:
             self._state_frequency = 1.0 / (msg.time - self._state_time)
         self._state_time = msg.time
+        self._status = msg.status
 
     @property
     def attitude(self):
@@ -280,12 +288,13 @@ class Drone(object):
     def log_telemetry(self, msg_name, msg):
         """Save the msg information to the telemetry log"""
         if self.tlog.open:
-            data = [msg_name]
-            data.append(msg.time)
-            for k in msg.__dict__.keys():
-                if k != '_time':
-                    data.append(msg.__dict__[k])
-            self.tlog.log_telemetry_data(data)
+            self.tlog.log_telemetry_msg(msg_name, msg)
+            # data = [msg_name]
+            # data.append(msg.time)
+            # for k in msg.__dict__.keys():
+            #     if k != '_time':
+            #         data.append(msg.__dict__[k])
+            # self.tlog.log_telemetry_data(data)
 
     @staticmethod
     def read_telemetry_data(filename):
@@ -444,17 +453,17 @@ class Drone(object):
         except Exception as e:
             traceback.print_exc()
 
-    def cmd_attitude(self, roll, pitch, yaw_rate, thrust):
+    def cmd_attitude(self, roll, pitch, yaw, thrust):
         """Command the drone through attitude command
 
         Args:
             roll: in radians
             pitch: in randians
-            yaw_rate: in radians/second
-            thrust: upward acceleration in meters/second^2
+            yaw_rate: in radians
+            thrust: normalized thrust on [0, 1] (0 being no thrust, 1 being full thrust)
         """
         try:
-            self.connection.cmd_attitude(roll, pitch, yaw_rate, thrust)
+            self.connection.cmd_attitude(roll, pitch, yaw, thrust)
         except Exception as e:
             traceback.print_exc()
 
@@ -504,9 +513,12 @@ class Drone(object):
         """Set the drone's home position to these coordinates"""
         try:
             self.connection.set_home_position(latitude, longitude, altitude)
-
         except Exception as e:
             traceback.print_exc()
+
+    def set_home_as_current_position(self):
+        """Set the drone's home position to its current position"""
+        self.set_home_position(self._longitude, self._latitude, self._altitude)
 
     def start_log(self, directory, name):
         self.log = Logger(directory, name)

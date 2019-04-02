@@ -1,14 +1,14 @@
 import os
+import queue
 import threading
 import time
 
 from pymavlink import mavutil
 
-import queue
 from udacidrone.messaging import MsgID
 
-from . import message_types as mt
 from . import connection
+from . import message_types as mt
 from .mavlink_utils import AttitudeMask, MainMode, PositionMask, dispatch_message
 
 # force use of mavlink v2.0
@@ -302,14 +302,14 @@ class MavlinkConnection(connection.Connection):
         custom_sub_mode = 0  # not used for manual/offboard
         self.send_long_command(mavutil.mavlink.MAV_CMD_DO_SET_MODE, mode, custom_mode, custom_sub_mode)
 
-    def cmd_attitude(self, roll, pitch, yawrate, thrust):
+    def cmd_attitude(self, roll, pitch, yaw, thrust):
         time_boot_ms = 0  # this does not need to be set to a specific time
         # TODO: convert the attitude to a quaternion
-        frame_msg = mt.FrameMessage(0.0, roll, pitch, 0.0)
+        frame_msg = mt.FrameMessage(0.0, roll, pitch, yaw)
         q = [frame_msg.q0, frame_msg.q1, frame_msg.q2, frame_msg.q3]
         mask = AttitudeMask.MASK_IGNORE_RATES.value
         msg = self._master.mav.set_attitude_target_encode(time_boot_ms, self._target_system, self._target_component,
-                                                          mask, q, 0, 0, yawrate, thrust)
+                                                          mask, q, 0, 0, 0, thrust)
         self.send_message(msg)
 
     def cmd_attitude_rate(self, roll_rate, pitch_rate, yaw_rate, thrust):
@@ -352,6 +352,19 @@ class MavlinkConnection(connection.Connection):
             time_boot_ms, self._target_system, self._target_component, mavutil.mavlink.MAV_FRAME_LOCAL_NED, mask, n, e,
             d, 0, 0, 0, 0, 0, 0, heading, 0)
         self.send_message(msg)
+        
+    def cmd_controls(self, controls, t=0):
+        time_boot_us = int(t * 1000000)
+        # ensure controls_out is of length 8 even if controls isn't
+        controls_out = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  
+        for i in range(len(controls)):
+            controls_out[i] = controls[i]
+        group_mlx = 1  # TODO: add the ability to set multiple groups of messages
+        
+        msg = self._master.mav.set_actuator_control_target_encode(
+            time_boot_us, group_mlx, self._target_system, 
+            self._target_component, controls_out)
+        self.send_message(msg)            
 
     def takeoff(self, n, e, d):
         # for mavlink to PX4 need to specify the NED location for landing
